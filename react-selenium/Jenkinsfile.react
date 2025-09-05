@@ -1,0 +1,61 @@
+pipeline {
+  agent any
+  options { timestamps() }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('Install Deps') {
+      steps {
+        dir('react-selenium') {
+          bat 'npm install'
+          bat 'npm install -g serve'   // install serve globally
+        }
+      }
+    }
+
+    stage('Build App') {
+      steps {
+        dir('react-selenium') {
+          bat 'npm run build'
+        }
+      }
+    }
+
+    stage('Run Selenium E2E') {
+      steps {
+        dir('react-selenium') {
+          bat '''
+            if not exist test-results mkdir test-results
+            REM Start React app in background on port 3000
+            start /B serve -s build -l 3000
+            timeout /t 5
+
+            REM Run Selenium tests
+            npx mocha "e2e/**/*.js" --timeout 60000 ^
+              --reporter mocha-junit-reporter ^
+              --reporter-options mochaFile=test-results/results.xml
+          '''
+        }
+      }
+    }
+
+    stage('Archive Results') {
+      steps {
+        junit 'react-selenium/test-results/*.xml'
+        archiveArtifacts artifacts: 'react-selenium/test-results/**', fingerprint: true, onlyIfSuccessful: false
+      }
+    }
+  }
+
+  post {
+    always {
+      echo 'Pipeline finished.'
+      bat 'taskkill /F /IM node.exe || exit 0'  // cleanup React server after tests
+    }
+  }
+}
